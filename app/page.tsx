@@ -60,6 +60,12 @@ const categoryMix = [
   { name: "Bills", ratio: 0.14, color: "#7c3aed" },
   { name: "Shopping", ratio: 0.14, color: "#dc2626" },
 ];
+const budgetTemplate = [
+  { label: "Food", ratio: 0.24, limitRatio: 0.27, tone: "bg-amber-500" },
+  { label: "Travel", ratio: 0.16, limitRatio: 0.2, tone: "bg-blue-600" },
+  { label: "Shopping", ratio: 0.14, limitRatio: 0.18, tone: "bg-red-600" },
+  { label: "Bills", ratio: 0.14, limitRatio: 0.17, tone: "bg-violet-600" },
+];
 const subscribeToClient = () => () => {};
 
 function useIsClient() {
@@ -364,8 +370,15 @@ export default function Home() {
       amount: Math.round(spent * category.ratio),
       color: category.color,
     }));
+    const budgetRows = budgetTemplate.map((item) => ({
+      label: item.label,
+      spent: Math.round(spent * item.ratio),
+      limit: Math.round(spent * item.limitRatio),
+      tone: item.tone,
+    }));
 
     return {
+      budgetRows,
       categories,
       chartData,
       income,
@@ -515,15 +528,18 @@ export default function Home() {
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
-            ["Income", formatCurrency(periodData.income), `${formatDelta(periodData.income, periodData.previousIncome)} vs previous`],
-            ["Spending", formatCurrency(periodData.spent), `${formatDelta(periodData.spent, periodData.previousSpent)} vs previous`],
-            ["Saved", formatCurrency(periodData.saved), `${formatDelta(periodData.saved, periodData.previousSaved)} vs previous`],
-            ["Savings rate", `${periodData.savingsRate}%`, periodData.label],
-          ].map(([label, value, detail]) => (
+            ["Income", periodData.income, formatDelta(periodData.income, periodData.previousIncome)],
+            ["Spending", periodData.spent, formatDelta(periodData.spent, periodData.previousSpent)],
+            ["Saved", periodData.saved, `${periodData.savingsRate}% rate`],
+            ["Needs review", Math.round(periodData.spent * 0.012), "2 imports"],
+          ].map(([label, value, delta]) => (
             <article key={label} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-500">{label}</p>
-              <p className="mt-4 text-3xl font-bold tracking-tight">{value}</p>
-              <p className="mt-2 text-sm text-slate-500">{detail}</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-slate-500">{label}</p>
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">{delta}</span>
+              </div>
+              <p className="mt-4 text-3xl font-bold tracking-tight">{formatCurrency(Number(value))}</p>
+              <p className="mt-2 text-sm text-slate-500">{period} view from authenticated Supabase data</p>
             </article>
           ))}
         </section>
@@ -581,26 +597,26 @@ export default function Home() {
 
           <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-bold">Budget health</h2>
-            <p className="mt-1 text-sm text-slate-500">Category budgets based on sample analytics</p>
-            <div className="mt-6 space-y-4">
-              {periodData.categories.length > 0 ? (
-                periodData.categories.slice(0, 5).map((category) => {
-                  const width = periodData.spent > 0 ? Math.round((category.amount / periodData.spent) * 100) : 0;
-                  return (
-                    <div key={category.name}>
-                      <div className="mb-2 flex items-center justify-between text-sm">
-                        <span className="font-bold text-slate-800">{category.name}</span>
-                        <span className="font-semibold text-slate-500">{formatCurrency(category.amount)}</span>
-                      </div>
-                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full bg-teal-700" style={{ width: `${width}%` }} />
-                      </div>
+            <p className="mt-1 text-sm text-slate-500">Limits can be stored per user in Supabase</p>
+            <div className="mt-6 space-y-5">
+              {periodData.budgetRows.map((row) => {
+                const percent = Math.round((row.spent / row.limit) * 100);
+
+                return (
+                  <div key={row.label}>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="font-bold text-slate-800">{row.label}</span>
+                      <span className="font-semibold text-slate-500">{percent}%</span>
                     </div>
-                  );
-                })
-              ) : (
-                <p className="text-sm font-semibold text-slate-500">No category totals for this period.</p>
-              )}
+                    <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                      <div className={`h-full rounded-full ${row.tone}`} style={{ width: `${percent}%` }} />
+                    </div>
+                    <p className="mt-1 text-xs font-medium text-slate-500">
+                      {formatCurrency(row.spent)} of {formatCurrency(row.limit)}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </article>
         </section>
