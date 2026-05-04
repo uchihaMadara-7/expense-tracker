@@ -59,20 +59,13 @@ type MappingRow = {
   category: string;
 };
 
-const chartColors = ["#009ca4", "#f74800"]
+const chartColors = ["#009ca4", "#f74800", "#d97706", "#2563eb", "#7c3aed"]
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const quarterOptions = [
   { label: "Q1", months: [0, 1, 2] },
   { label: "Q2", months: [3, 4, 5] },
   { label: "Q3", months: [6, 7, 8] },
   { label: "Q4", months: [9, 10, 11] },
-];
-const categoryMix = [
-  { name: "Housing", ratio: 0.34, color: chartColors[0] },
-  { name: "Food", ratio: 0.22, color: "#d97706" },
-  { name: "Travel", ratio: 0.16, color: "#2563eb" },
-  { name: "Bills", ratio: 0.14, color: "#7c3aed" },
-  { name: "Shopping", ratio: 0.14, color: chartColors[1] },
 ];
 const budgetTemplate = [
   { label: "Food", ratio: 0.24, limitRatio: 0.27, tone: "bg-amber-500" },
@@ -194,6 +187,29 @@ function getTransactionTotals(year: number, months: number[], annualIncome: Reco
     income: months.reduce((sum, month) => sum + (incomeForYear?.[month] ?? 0), 0),
     spent: months.reduce((sum, month) => sum + (spendForYear?.[month] ?? 0), 0),
   };
+}
+
+function getCategoryTotals(transactions: Transaction[], year: number, months: number[]) {
+  const activeMonths = new Set(months);
+  const totals = transactions.reduce<Record<string, number>>((categoryTotals, transaction) => {
+    const parts = dateParts(transaction.date);
+
+    if (!parts || parts.year !== year || !activeMonths.has(parts.month) || transaction.amount >= 0) {
+      return categoryTotals;
+    }
+
+    const category = transaction.category || "Others";
+    categoryTotals[category] = (categoryTotals[category] ?? 0) + Math.abs(transaction.amount);
+    return categoryTotals;
+  }, {});
+
+  return Object.entries(totals)
+    .sort(([, leftAmount], [, rightAmount]) => rightAmount - leftAmount)
+    .map(([name, amount], index) => ({
+      name,
+      amount,
+      color: chartColors[index % chartColors.length],
+    }));
 }
 
 function formatDelta(current: number, previous: number) {
@@ -500,11 +516,7 @@ export default function Home() {
             income: annualIncome[selectedYear as keyof typeof annualIncome]?.[month] ?? 0,
             spend: annualSpend[selectedYear as keyof typeof annualSpend]?.[month] ?? 0,
           }));
-    const categories = categoryMix.map((category) => ({
-      name: category.name,
-      amount: Math.round(spent * category.ratio),
-      color: category.color,
-    }));
+    const categories = getCategoryTotals(transactions, selectedYear, activeMonths);
     const budgetRows = budgetTemplate.map((item) => ({
       label: item.label,
       spent: Math.round(spent * item.ratio),
@@ -525,7 +537,7 @@ export default function Home() {
       spent,
       savingsRate: income > 0 ? Math.round((saved / income) * 100) : 0,
     };
-  }, [annualIncome, annualSpend, period, selectedMonth, selectedQuarter, selectedYear]);
+  }, [annualIncome, annualSpend, period, selectedMonth, selectedQuarter, selectedYear, transactions]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
