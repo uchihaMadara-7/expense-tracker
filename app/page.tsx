@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { DownloadIcon } from 'lucide-react'
+
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Bar,
   BarChart,
@@ -16,6 +19,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { DataTable } from "@/components/data-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
+import { Input } from "@/components/ui/input";
 import { isSupabaseConfigured, supabase, type TransactionRow } from "@/lib/supabase";
 
 type Period = "Monthly" | "Quarterly" | "Yearly";
@@ -33,11 +49,14 @@ type CategoryMapRow = {
   category: string | null;
 };
 
-type PendingCategoryChange = {
-  transactionId: string;
+type ComboboxOption = {
+  label: string;
+  value: string;
+};
+
+type MappingRow = {
   merchant: string;
-  currentCategory: string;
-  nextCategory: string;
+  category: string;
 };
 
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -47,7 +66,6 @@ const quarterOptions = [
   { label: "Q3", months: [6, 7, 8] },
   { label: "Q4", months: [9, 10, 11] },
 ];
-const defaultCategories = ["Uncategorized", "Housing", "Food", "Travel", "Bills", "Shopping", "Health", "Education"];
 const annualIncome = {
   2024: [292000, 296000, 301000, 304000, 309000, 315000, 318000, 322000, 328000, 331000, 336000, 342000],
   2025: [348000, 352000, 356000, 361000, 365000, 371000, 376000, 382000, 388000, 392000, 398000, 405000],
@@ -95,7 +113,7 @@ function toTransaction(row: TransactionRow, categoryMap: Record<string, string> 
     id: String(row.id),
     date: row.date,
     merchant: row.merchant,
-    category: row.category?.trim() || categoryMap[row.merchant] || "Uncategorized",
+    category: row.category?.trim() || categoryMap[row.merchant] || "Others",
     amount: Number(row.amount) || 0,
   };
 }
@@ -181,6 +199,51 @@ function EmptyChart({ label }: { label: string }) {
   );
 }
 
+function OptionCombobox({
+  className,
+  emptyText = "No option found.",
+  onValueChange,
+  options,
+  placeholder,
+  value,
+}: {
+  className?: string;
+  emptyText?: string;
+  onValueChange: (value: string) => void;
+  options: ComboboxOption[];
+  placeholder: string;
+  value: string;
+}) {
+  const selectedOption = options.find((option) => option.value === value) ?? null;
+
+  return (
+    <Combobox
+      items={options}
+      value={selectedOption}
+      onValueChange={(option) => {
+        if (option) {
+          onValueChange(option.value);
+        }
+      }}
+      itemToStringLabel={(option) => option.label}
+      itemToStringValue={(option) => option.value}
+      isItemEqualToValue={(item, selected) => item.value === selected.value}
+    >
+      <ComboboxInput className={className} placeholder={placeholder} />
+      <ComboboxContent>
+        <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+        <ComboboxList>
+          {options.map((option) => (
+            <ComboboxItem key={option.value} value={option}>
+              {option.label}
+            </ComboboxItem>
+          ))}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  );
+}
+
 function CategoryChart({ data }: { data: Array<{ name: string; amount: number; color: string }> }) {
   const mounted = useIsClient();
   const total = data.reduce((sum, item) => sum + item.amount, 0);
@@ -216,7 +279,7 @@ function CategoryChart({ data }: { data: Array<{ name: string; amount: number; c
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                 {item.name}
               </span>
-              <span className="font-semibold text-slate-950">{formatCurrency(item.amount)}</span>
+              <span className="font-semibold text-slate-600">{formatCurrency(item.amount)}</span>
             </div>
           ))
         ) : (
@@ -310,30 +373,25 @@ function PaginationControls({
     >
       <div className={`flex items-center gap-2 ${isDark ? "text-slate-200" : "text-slate-600"}`}>
         <span className="font-semibold">Rows per page</span>
-        <select
-          className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-bold text-slate-700 shadow-sm"
-          value={rowsPerPage}
-          onChange={(event) => onRowsPerPageChange(Number(event.target.value))}
-          aria-label={`Rows per page for ${itemLabel}`}
-        >
-          {rowsPerPageOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+        <OptionCombobox
+          className={isDark ? "w-20 border-white/15 bg-white/10 text-white" : "w-20 bg-white"}
+          options={rowsPerPageOptions.map((option) => ({ label: String(option), value: String(option) }))}
+          value={String(rowsPerPage)}
+          placeholder="Rows"
+          onValueChange={(value) => onRowsPerPageChange(Number(value))}
+        />
       </div>
       <div className="flex items-center justify-between gap-3 sm:justify-end">
         <span className={`font-semibold ${isDark ? "text-slate-300" : "text-slate-500"}`}>
           {firstItem}-{lastItem} of {totalItems} {itemLabel}
         </span>
         <div className="flex gap-2">
-          <button className={buttonClass} disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
+          <Button className={buttonClass} variant="outline" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
             Prev
-          </button>
-          <button className={buttonClass} disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
+          </Button>
+          <Button className={buttonClass} variant="outline" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
             Next
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -350,7 +408,6 @@ export default function Home() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
   const [transactionError, setTransactionError] = useState<string | null>(null);
-  const [pendingCategoryChange, setPendingCategoryChange] = useState<PendingCategoryChange | null>(null);
   const [merchantCategoryMap, setMerchantCategoryMap] = useState<Record<string, string>>({});
   const [transactionPage, setTransactionPage] = useState(1);
   const [transactionRowsPerPage, setTransactionRowsPerPage] = useState(10);
@@ -415,13 +472,6 @@ export default function Home() {
     return Array.from(years).sort((a, b) => b - a);
   }, [selectedYear, transactions]);
 
-  const categoryOptions = useMemo(() => {
-    const categories = new Set(defaultCategories);
-    transactions.forEach((transaction) => categories.add(transaction.category));
-    Object.values(merchantCategoryMap).forEach((category) => categories.add(category));
-    return Array.from(categories).sort((a, b) => (a === "Uncategorized" ? -1 : b === "Uncategorized" ? 1 : a.localeCompare(b)));
-  }, [merchantCategoryMap, transactions]);
-
   const mappingEntries = useMemo(() => Object.entries(merchantCategoryMap).sort(([left], [right]) => left.localeCompare(right)), [merchantCategoryMap]);
   const transactionTotalPages = Math.max(1, Math.ceil(transactions.length / transactionRowsPerPage));
   const mappingTotalPages = Math.max(1, Math.ceil(mappingEntries.length / mappingRowsPerPage));
@@ -434,6 +484,50 @@ export default function Home() {
   const paginatedMappings = useMemo(
     () => mappingEntries.slice((activeMappingPage - 1) * mappingRowsPerPage, activeMappingPage * mappingRowsPerPage),
     [activeMappingPage, mappingEntries, mappingRowsPerPage],
+  );
+  const paginatedMappingRows = useMemo(
+    () => paginatedMappings.map(([merchant, category]) => ({ merchant, category })),
+    [paginatedMappings],
+  );
+  const transactionColumns = useMemo<ColumnDef<Transaction>[]>(
+    () => [
+      {
+        accessorKey: "merchant",
+        header: "Merchant",
+        cell: ({ row }) => <span className="font-bold text-slate-900">{row.original.merchant}</span>,
+      },
+      {
+        accessorKey: "category",
+        header: "Category",
+        cell: ({ row }) => <span className="text-slate-600">{row.original.category}</span>,
+      },
+      {
+        accessorKey: "date",
+        header: "Date",
+        cell: ({ row }) => <span className="text-slate-600">{formatDate(row.original.date)}</span>,
+      },
+      {
+        accessorKey: "amount",
+        header: () => <span className="block text-right">Amount</span>,
+        cell: ({ row }) => <span className="block text-right font-bold">{formatCurrency(row.original.amount)}</span>,
+      },
+    ],
+    [],
+  );
+  const mappingColumns = useMemo<ColumnDef<MappingRow>[]>(
+    () => [
+      {
+        accessorKey: "merchant",
+        header: "Merchant",
+        cell: ({ row }) => <span className="font-semibold text-slate-900">{row.original.merchant}</span>,
+      },
+      {
+        accessorKey: "category",
+        header: () => <span className="block text-right">Category</span>,
+        cell: ({ row }) => <span className="block text-right text-slate-600">{row.original.category}</span>,
+      },
+    ],
+    [],
   );
 
   const periodData = useMemo(() => {
@@ -488,151 +582,72 @@ export default function Home() {
     };
   }, [period, selectedMonth, selectedQuarter, selectedYear]);
 
-  function requestCategoryChange(transactionId: string, merchant: string, currentCategory: string, nextCategory: string) {
-    if (currentCategory === nextCategory) {
-      return;
-    }
-
-    setPendingCategoryChange({ transactionId, merchant, currentCategory, nextCategory });
-  }
-
-  async function confirmCategoryChange() {
-    if (!pendingCategoryChange) {
-      return;
-    }
-
-    const { merchant, nextCategory } = pendingCategoryChange;
-    const savedCategory = nextCategory === "Uncategorized" ? null : nextCategory;
-
-    if (supabase) {
-      const { error } = await supabase.from("Transactions").update({ category: savedCategory }).eq("merchant", merchant);
-
-      if (error) {
-        setTransactionError(error.message);
-        setPendingCategoryChange(null);
-        return;
-      }
-
-      if (nextCategory !== "Uncategorized") {
-        const { error: mappingError } = await supabase
-          .from("CategoryMap")
-          .upsert({ merchant, category: nextCategory }, { onConflict: "merchant" });
-
-        if (mappingError) {
-          setTransactionError(mappingError.message);
-          setPendingCategoryChange(null);
-          return;
-        }
-      }
-    }
-
-    setTransactions((currentTransactions) =>
-      currentTransactions.map((transaction) =>
-        transaction.merchant === merchant ? { ...transaction, category: nextCategory } : transaction,
-      ),
-    );
-    setMerchantCategoryMap((currentMap) => {
-      const nextMap = { ...currentMap };
-      if (nextCategory === "Uncategorized") {
-        delete nextMap[merchant];
-      } else {
-        nextMap[merchant] = nextCategory;
-      }
-      return nextMap;
-    });
-    setPendingCategoryChange(null);
-  }
-
   return (
-    <main className="min-h-screen bg-[#f7f4ee] text-slate-950">
+    <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-4 sm:px-6 lg:px-8">
         <header className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-800">Supabase workspace</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Supabase workspace</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Expense tracker</h1>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex rounded-lg border border-slate-300 bg-white p-1 shadow-sm">
               {(["Monthly", "Quarterly", "Yearly"] as Period[]).map((item) => (
-                <button
+                <Button
                   key={item}
-                  className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
-                    period === item ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
-                  }`}
+                  variant={period === item ? "default" : "ghost"}
+                  className="rounded-md px-4 py-2 text-sm font-semibold"
                   onClick={() => setPeriod(item)}
                 >
                   {item}
-                </button>
+                </Button>
               ))}
             </div>
             <div className="flex flex-wrap gap-2">
-              <select
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm"
-                value={selectedYear}
-                onChange={(event) => setSelectedYear(Number(event.target.value))}
-                aria-label="Select year"
-              >
-                {yearOptions.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
+              <OptionCombobox
+                className="w-28 bg-white font-bold text-slate-700"
+                options={yearOptions.map((year) => ({ label: String(year), value: String(year) }))}
+                value={String(selectedYear)}
+                placeholder="Year"
+                onValueChange={(value) => setSelectedYear(Number(value))}
+              />
               {period === "Monthly" ? (
-                <select
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm"
-                  value={selectedMonth}
-                  onChange={(event) => setSelectedMonth(Number(event.target.value))}
-                  aria-label="Select month"
-                >
-                  {monthLabels.map((month, index) => (
-                    <option key={month} value={index}>
-                      {month}
-                    </option>
-                  ))}
-                </select>
+                <OptionCombobox
+                  className="w-28 bg-white font-bold text-slate-700"
+                  options={monthLabels.map((month, index) => ({ label: month, value: String(index) }))}
+                  value={String(selectedMonth)}
+                  placeholder="Month"
+                  onValueChange={(value) => setSelectedMonth(Number(value))}
+                />
               ) : null}
               {period === "Quarterly" ? (
-                <select
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm"
-                  value={selectedQuarter}
-                  onChange={(event) => setSelectedQuarter(Number(event.target.value))}
-                  aria-label="Select quarter"
-                >
-                  {quarterOptions.map((quarter, index) => (
-                    <option key={quarter.label} value={index}>
-                      {quarter.label}
-                    </option>
-                  ))}
-                </select>
+                <OptionCombobox
+                  className="w-28 bg-white font-bold text-slate-700"
+                  options={quarterOptions.map((quarter, index) => ({ label: quarter.label, value: String(index) }))}
+                  value={String(selectedQuarter)}
+                  placeholder="Quarter"
+                  onValueChange={(value) => setSelectedQuarter(Number(value))}
+                />
               ) : null}
             </div>
-            <button
-              className="rounded-lg bg-teal-800 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-900"
-              onClick={loadTransactions}
-            >
-              Sync Supabase
-            </button>
           </div>
         </header>
 
-        <section className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <Card className="rounded-lg border-slate-200 bg-white px-1 shadow-sm">
+          <CardContent>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-bold">{isSupabaseConfigured ? "Supabase configured" : "Supabase keys missing"}</p>
               <p className="mt-1 text-sm text-slate-500">Reading from Transactions and CategoryMap</p>
             </div>
-            <span
-              className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${
-                isSupabaseConfigured ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-              }`}
-            >
+            <Badge variant="secondary" className="w-fit">
               {isLoadingTransactions ? "Loading" : `${transactions.length} rows`}
-            </span>
+            </Badge>
           </div>
           {transactionError ? <p className="mt-3 text-sm font-semibold text-red-700">{transactionError}</p> : null}
-        </section>
+          </CardContent>
+        </Card>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
@@ -641,72 +656,86 @@ export default function Home() {
             ["Saved", periodData.saved, `${periodData.savingsRate}% rate`],
             ["Needs review", Math.round(periodData.spent * 0.012), "2 imports"],
           ].map(([label, value, delta]) => (
-            <article key={label} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-500">{label}</p>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">{delta}</span>
+            <Card key={label} className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+              <CardContent>
+              <div className="flex items-center justify-between gap-3 p-2">
+                <p className="text-sm font-medium text-slate-500">{label}</p>
+                <Badge variant="secondary">{delta}</Badge>
               </div>
               <p className="mt-4 text-3xl font-bold tracking-tight">{formatCurrency(Number(value))}</p>
-              <p className="mt-2 text-sm text-slate-500">{period} view from authenticated Supabase data</p>
-            </article>
+              <p className="mt-2 text-sm text-slate-500 pb-1">{period} data view</p>
+              </CardContent>
+            </Card>
           ))}
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+            <CardHeader className="flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 className="text-xl font-bold">Income vs spending</h2>
-                <p className="mt-1 text-sm text-slate-500">Sample analytics for {periodData.label}</p>
+                <CardTitle className="text-xl font-bold">Income vs spending</CardTitle>
+                <CardDescription>Sample analytics for {periodData.label}</CardDescription>
               </div>
               <div className="flex gap-3 text-sm font-semibold">
                 <span className="flex items-center gap-2 text-teal-800"><i className="h-2.5 w-2.5 rounded-full bg-teal-700" />Income</span>
                 <span className="flex items-center gap-2 text-amber-700"><i className="h-2.5 w-2.5 rounded-full bg-amber-500" />Spend</span>
               </div>
-            </div>
-            <TrendChart data={periodData.chartData} />
-          </article>
+            </CardHeader>
+            <CardContent>
+              <TrendChart data={periodData.chartData} />
+            </CardContent>
+          </Card>
 
-          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-bold">Category split</h2>
-            <p className="mt-1 text-sm text-slate-500">Sample category split for {periodData.label}</p>
-            <div className="mt-6">
+          <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+            <CardHeader className="p-3">
+              <CardTitle className="text-xl font-bold">Category split</CardTitle>
+              <CardDescription>Sample category split for {periodData.label}</CardDescription>
+            </CardHeader>
+            <CardContent>
               <CategoryChart data={periodData.categories} />
-            </div>
-          </article>
+            </CardContent>
+          </Card>
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr_1fr]">
-          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
+          <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+            <CardContent>
+            <div className="flex items-start justify-between gap-4 p-3">
               <div>
-                <h2 className="text-xl font-bold">Excel import</h2>
+                <CardTitle className="text-xl font-bold">Excel import</CardTitle>
                 <p className="mt-1 text-sm text-slate-500">Upload .xlsx, .xls, or .csv files for review</p>
               </div>
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Ready</span>
+              <Badge className="bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300">Ready</Badge>
             </div>
             <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center transition hover:border-teal-700 hover:bg-teal-50">
               <span className="text-sm font-bold">Choose Excel sheet</span>
               <span className="mt-1 text-sm text-slate-500">{fileName}</span>
-              <input
+              <Input
                 className="sr-only"
                 type="file"
                 accept=".xlsx,.xls,.csv"
                 onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "No file selected")}
               />
             </label>
-          </article>
+            </CardContent>
+          </Card>
 
-          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-bold">Cash flow</h2>
-            <p className="mt-1 text-sm text-slate-500">Income and spend bars for {periodData.label}</p>
-            <CashFlowBars data={periodData.chartData} />
-          </article>
+          <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+            <CardHeader className="p-3">
+              <CardTitle className="text-xl font-bold">Cash flow</CardTitle>
+              <CardDescription>Income and spend bars for {periodData.label}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CashFlowBars data={periodData.chartData} />
+            </CardContent>
+          </Card>
 
-          <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-bold">Budget health</h2>
-            <p className="mt-1 text-sm text-slate-500">Limits can be stored per user in Supabase</p>
-            <div className="mt-6 space-y-5">
+          <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+            <CardHeader className="p-3">
+              <CardTitle className="text-xl font-bold">Budget health</CardTitle>
+              <CardDescription>Limits can be stored per user in Supabase</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
               {periodData.budgetRows.map((row) => {
                 const percent = Math.round((row.spent / row.limit) * 100);
 
@@ -725,147 +754,47 @@ export default function Home() {
                   </div>
                 );
               })}
-            </div>
-          </article>
+            </CardContent>
+          </Card>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-2 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="overflow-hidden rounded-lg border-slate-200 bg-white p-0 shadow-sm">
+            <CardContent>
+            <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-xl font-bold">Transactions</h2>
+                <CardTitle className="text-xl font-bold">Transactions</CardTitle>
                 <p className="mt-1 text-sm text-slate-500">Fetched directly from Supabase</p>
               </div>
-              <button className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+              <Button variant="outline" className="font-bold text-slate-700">
+                <DownloadIcon className='mr-2' />
                 Export
-              </button>
+              </Button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-[0.14em] text-slate-500">
-                  <tr>
-                    <th className="px-5 py-3 font-bold">Merchant</th>
-                    <th className="px-5 py-3 font-bold">Category</th>
-                    <th className="px-5 py-3 font-bold">Date</th>
-                    <th className="px-5 py-3 text-right font-bold">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {transactions.length > 0 ? (
-                    paginatedTransactions.map((transaction) => (
-                      <tr key={transaction.id} className="hover:bg-slate-50">
-                        <td className="px-5 py-4 font-bold text-slate-900">{transaction.merchant}</td>
-                        <td className="px-5 py-4 text-slate-600">
-                          <select
-                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm"
-                            value={transaction.category}
-                            onChange={(event) =>
-                              requestCategoryChange(transaction.id, transaction.merchant, transaction.category, event.target.value)
-                            }
-                            aria-label={`Category for ${transaction.merchant}`}
-                          >
-                            {categoryOptions.map((category) => (
-                              <option key={category} value={category}>
-                                {category}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-5 py-4 text-slate-600">{formatDate(transaction.date)}</td>
-                        <td className="px-5 py-4 text-right font-bold">{formatCurrency(transaction.amount)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td className="px-5 py-8 text-center text-sm font-semibold text-slate-500" colSpan={4}>
-                        {isLoadingTransactions ? "Loading transactions..." : "No transactions returned from Supabase."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <PaginationControls
-              currentPage={activeTransactionPage}
-              itemLabel="transactions"
-              onPageChange={setTransactionPage}
-              onRowsPerPageChange={(nextRowsPerPage) => {
-                setTransactionRowsPerPage(nextRowsPerPage);
-                setTransactionPage(1);
-              }}
-              rowsPerPage={transactionRowsPerPage}
-              totalItems={transactions.length}
-              totalPages={transactionTotalPages}
+            <DataTable
+              columns={transactionColumns}
+              data={transactions}
+              emptyText={isLoadingTransactions ? "Loading transactions..." : "No transactions returned from Supabase."}
             />
-          </section>
+            </CardContent>
+          </Card>
 
-          <aside className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
-            <h2 className="text-xl font-bold">Learned mappings</h2>
-            <p className="mt-1 text-sm text-slate-300">Merchant-category pairs from CategoryMap</p>
-            <div className="mt-5 space-y-2 text-sm">
-              {mappingEntries.length > 0 ? (
-                paginatedMappings.map(([merchant, category]) => (
-                  <div key={merchant} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2">
-                    <span className="font-semibold">{merchant}</span>
-                    <span className="text-teal-200">{category}</span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-slate-300">No mappings yet.</p>
-              )}
-            </div>
-            <div className="-mx-5 -mb-5 mt-5 border-slate-800 text-slate-200">
-              <PaginationControls
-                currentPage={activeMappingPage}
-                itemLabel="mappings"
-                onPageChange={setMappingPage}
-                onRowsPerPageChange={(nextRowsPerPage) => {
-                  setMappingRowsPerPage(nextRowsPerPage);
-                  setMappingPage(1);
-                }}
-                rowsPerPage={mappingRowsPerPage}
-                totalItems={mappingEntries.length}
-                totalPages={mappingTotalPages}
-                variant="dark"
+          <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+            <CardContent>
+            <CardTitle className="text-xl font-bold">Learned mappings</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Merchant-category pairs from CategoryMap</p>
+            <div className="container mx-auto py-10">
+              <DataTable
+                columns={mappingColumns}
+                data={merchantCategoryMap}
+                emptyText="No mappings yet."
               />
             </div>
-          </aside>
+            </CardContent>
+          </Card>
         </section>
       </div>
 
-      {pendingCategoryChange ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-          <section
-            className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 text-slate-950 shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="category-confirm-title"
-          >
-            <h2 id="category-confirm-title" className="text-xl font-bold">
-              Save category update?
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              This will change all fetched rows for {pendingCategoryChange.merchant} from{" "}
-              <span className="font-bold text-slate-950">{pendingCategoryChange.currentCategory}</span> to{" "}
-              <span className="font-bold text-teal-800">{pendingCategoryChange.nextCategory}</span>.
-            </p>
-            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-              <button
-                className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-                onClick={() => setPendingCategoryChange(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded-lg bg-teal-800 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-900"
-                onClick={confirmCategoryChange}
-              >
-                Save category
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
     </main>
   );
 }
