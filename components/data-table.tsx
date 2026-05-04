@@ -32,8 +32,10 @@ export function DataTable<TData, TValue>({
   columns,
   data,
 }: DataTableProps<TData, TValue>) {
-  const [globalFilter, setGlobalFilter] = React.useState<>("")
+  const [globalFilter, setGlobalFilter] = React.useState("")
 
+  // TanStack Table intentionally returns function-bearing instances; this follows the shadcn data-table pattern.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
