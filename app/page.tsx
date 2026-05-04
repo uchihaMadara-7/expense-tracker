@@ -302,8 +302,8 @@ function TrendChart({ data }: { data: Array<{ label: string; income: number; spe
             <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
             <YAxis hide domain={["dataMin - 400", "dataMax + 400"]} />
             <Tooltip formatter={formatChartValue} />
-            <Line type="monotone" dataKey="income" stroke="#116466" strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
-            <Line type="monotone" dataKey="spend" stroke="#d97706" strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="income" stroke="#009ca4" strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="spend" stroke="#f74800" strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
           </LineChart>
         </ResponsiveContainer>
       ) : (
@@ -327,8 +327,8 @@ function CashFlowBars({ data }: { data: Array<{ label: string; income: number; s
             <YAxis hide />
             <Tooltip formatter={formatChartValue} />
             <Legend iconType="circle" wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
-            <Bar dataKey="income" fill="#116466" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="spend" fill="#d97706" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="income" fill="#009ca4" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="spend" fill="#f74800" radius={[8, 8, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       ) : (
@@ -559,20 +559,22 @@ export default function Home() {
           </div>
         </header>
 
-        <Card className="rounded-lg border-slate-200 bg-white px-1 shadow-sm">
-          <CardContent>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-bold">{isSupabaseConfigured ? "Supabase configured" : "Supabase keys missing"}</p>
-              <p className="mt-1 text-sm text-slate-500">Reading from Transactions and CategoryMap</p>
-            </div>
-            <Badge variant="secondary" className="w-fit">
-              {isLoadingTransactions ? "Loading" : `${transactions.length} rows`}
-            </Badge>
-          </div>
-          {transactionError ? <p className="mt-3 text-sm font-semibold text-red-700">{transactionError}</p> : null}
-          </CardContent>
-        </Card>
+        {transactionError ? (
+            <Card className="rounded-lg border-slate-200 bg-white px-1 shadow-sm">
+              <CardContent>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-bold">{isSupabaseConfigured ? "Supabase configured" : "Supabase keys missing"}</p>
+                      <p className="mt-1 text-sm text-slate-500">Reading from Transactions and CategoryMap</p>
+                    </div>
+                    <Badge variant="secondary" className="w-fit">
+                      {isLoadingTransactions ? "Loading" : `${transactions.length} rows`}
+                    </Badge>
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-red-700">{transactionError}</p>
+              </CardContent>
+            </Card>
+        ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
