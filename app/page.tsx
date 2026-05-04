@@ -59,6 +59,7 @@ type MappingRow = {
   category: string;
 };
 
+const chartColors = ["#009ca4", "#f74800"]
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const quarterOptions = [
   { label: "Q1", months: [0, 1, 2] },
@@ -66,22 +67,12 @@ const quarterOptions = [
   { label: "Q3", months: [6, 7, 8] },
   { label: "Q4", months: [9, 10, 11] },
 ];
-const annualIncome = {
-  2024: [292000, 296000, 301000, 304000, 309000, 315000, 318000, 322000, 328000, 331000, 336000, 342000],
-  2025: [348000, 352000, 356000, 361000, 365000, 371000, 376000, 382000, 388000, 392000, 398000, 405000],
-  2026: [412000, 418000, 424000, 430000, 436000, 442000, 448000, 455000, 461000, 468000, 474000, 482000],
-};
-const annualSpend = {
-  2024: [184000, 176000, 193000, 189000, 204000, 212000, 198000, 219000, 214000, 226000, 221000, 238000],
-  2025: [229000, 224000, 236000, 241000, 248000, 257000, 251000, 263000, 269000, 276000, 271000, 284000],
-  2026: [288000, 281000, 296000, 302000, 311000, 319000, 314000, 327000, 334000, 341000, 337000, 352000],
-};
 const categoryMix = [
-  { name: "Housing", ratio: 0.34, color: "#116466" },
+  { name: "Housing", ratio: 0.34, color: chartColors[0] },
   { name: "Food", ratio: 0.22, color: "#d97706" },
   { name: "Travel", ratio: 0.16, color: "#2563eb" },
   { name: "Bills", ratio: 0.14, color: "#7c3aed" },
-  { name: "Shopping", ratio: 0.14, color: "#dc2626" },
+  { name: "Shopping", ratio: 0.14, color: chartColors[1] },
 ];
 const budgetTemplate = [
   { label: "Food", ratio: 0.24, limitRatio: 0.27, tone: "bg-amber-500" },
@@ -167,17 +158,40 @@ function getPreviousPeriod(period: Period, month: number, quarter: number, year:
   return { year: year - 1, months: getPeriodMonths(period, month, quarter) };
 }
 
-function getSampleTotals(year: number, months: number[]) {
-  const incomeForYear = annualIncome[year as keyof typeof annualIncome];
-  const spendForYear = annualSpend[year as keyof typeof annualSpend];
+function buildAnnualSeries(transactions: Transaction[]) {
+  return transactions.reduce(
+    (series, transaction) => {
+      const parts = dateParts(transaction.date);
 
-  if (!incomeForYear || !spendForYear) {
-    return { income: 0, spent: 0 };
-  }
+      if (!parts || transaction.amount === 0) {
+        return series;
+      }
+
+      series.income[parts.year] ??= Array(12).fill(0);
+      series.spend[parts.year] ??= Array(12).fill(0);
+
+      if (transaction.amount > 0) {
+        series.income[parts.year][parts.month] += transaction.amount;
+      } else {
+        series.spend[parts.year][parts.month] += Math.abs(transaction.amount);
+      }
+
+      return series;
+    },
+    {
+      income: {} as Record<number, number[]>,
+      spend: {} as Record<number, number[]>,
+    },
+  );
+}
+
+function getTransactionTotals(year: number, months: number[], annualIncome: Record<number, number[]>, annualSpend: Record<number, number[]>) {
+  const incomeForYear = annualIncome[year];
+  const spendForYear = annualSpend[year];
 
   return {
-    income: months.reduce((sum, month) => sum + incomeForYear[month], 0),
-    spent: months.reduce((sum, month) => sum + spendForYear[month], 0),
+    income: months.reduce((sum, month) => sum + (incomeForYear?.[month] ?? 0), 0),
+    spent: months.reduce((sum, month) => sum + (spendForYear?.[month] ?? 0), 0),
   };
 }
 
@@ -302,8 +316,8 @@ function TrendChart({ data }: { data: Array<{ label: string; income: number; spe
             <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} />
             <YAxis hide domain={["dataMin - 400", "dataMax + 400"]} />
             <Tooltip formatter={formatChartValue} />
-            <Line type="monotone" dataKey="income" stroke="#009ca4" strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
-            <Line type="monotone" dataKey="spend" stroke="#f74800" strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="income" stroke={chartColors[0]} strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="spend" stroke={chartColors[1]}  strokeWidth={4} dot={false} activeDot={{ r: 5 }} />
           </LineChart>
         </ResponsiveContainer>
       ) : (
@@ -327,8 +341,8 @@ function CashFlowBars({ data }: { data: Array<{ label: string; income: number; s
             <YAxis hide />
             <Tooltip formatter={formatChartValue} />
             <Legend iconType="circle" wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
-            <Bar dataKey="income" fill="#009ca4" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="spend" fill="#f74800" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="income" fill={chartColors[0]} radius={[8, 8, 0, 0]} />
+            <Bar dataKey="spend" fill={chartColors[1]} radius={[8, 8, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       ) : (
@@ -413,6 +427,7 @@ export default function Home() {
 
     return Array.from(years).sort((a, b) => b - a);
   }, [selectedYear, transactions]);
+  const { income: annualIncome, spend: annualSpend } = useMemo(() => buildAnnualSeries(transactions), [transactions]);
 
   const transactionColumns = useMemo<ColumnDef<Transaction>[]>(
     () => [
@@ -458,8 +473,8 @@ export default function Home() {
   const periodData = useMemo(() => {
     const activeMonths = getPeriodMonths(period, selectedMonth, selectedQuarter);
     const previousPeriod = getPreviousPeriod(period, selectedMonth, selectedQuarter, selectedYear);
-    const { income, spent } = getSampleTotals(selectedYear, activeMonths);
-    const previousTotals = getSampleTotals(previousPeriod.year, previousPeriod.months);
+    const { income, spent } = getTransactionTotals(selectedYear, activeMonths, annualIncome, annualSpend);
+    const previousTotals = getTransactionTotals(previousPeriod.year, previousPeriod.months, annualIncome, annualSpend);
     const saved = income - spent;
     const previousSaved = previousTotals.income - previousTotals.spent;
     const label =
@@ -505,7 +520,7 @@ export default function Home() {
       spent,
       savingsRate: income > 0 ? Math.round((saved / income) * 100) : 0,
     };
-  }, [period, selectedMonth, selectedQuarter, selectedYear]);
+  }, [annualIncome, annualSpend, period, selectedMonth, selectedQuarter, selectedYear]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
