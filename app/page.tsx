@@ -28,6 +28,11 @@ type Transaction = {
   amount: number;
 };
 
+type CategoryMapRow = {
+  merchant: string;
+  category: string | null;
+};
+
 type PendingCategoryChange = {
   transactionId: string;
   merchant: string;
@@ -66,6 +71,7 @@ const budgetTemplate = [
   { label: "Shopping", ratio: 0.14, limitRatio: 0.18, tone: "bg-red-600" },
   { label: "Bills", ratio: 0.14, limitRatio: 0.17, tone: "bg-violet-600" },
 ];
+const rowsPerPageOptions = [10, 25, 50];
 const subscribeToClient = () => () => {};
 
 function useIsClient() {
@@ -84,12 +90,12 @@ function formatChartValue(value: unknown) {
   return typeof value === "number" ? formatCurrency(value) : String(value ?? "");
 }
 
-function toTransaction(row: TransactionRow): Transaction {
+function toTransaction(row: TransactionRow, categoryMap: Record<string, string> = {}): Transaction {
   return {
     id: String(row.id),
     date: row.date,
     merchant: row.merchant,
-    category: row.category?.trim() || "Uncategorized",
+    category: row.category?.trim() || categoryMap[row.merchant] || "Uncategorized",
     amount: Number(row.amount) || 0,
   };
 }
@@ -270,6 +276,70 @@ function CashFlowBars({ data }: { data: Array<{ label: string; income: number; s
   );
 }
 
+function PaginationControls({
+  currentPage,
+  itemLabel,
+  onPageChange,
+  onRowsPerPageChange,
+  rowsPerPage,
+  totalItems,
+  totalPages,
+  variant = "light",
+}: {
+  currentPage: number;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+  onRowsPerPageChange: (rowsPerPage: number) => void;
+  rowsPerPage: number;
+  totalItems: number;
+  totalPages: number;
+  variant?: "light" | "dark";
+}) {
+  const isDark = variant === "dark";
+  const firstItem = totalItems === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1;
+  const lastItem = Math.min(currentPage * rowsPerPage, totalItems);
+  const buttonClass = isDark
+    ? "rounded-lg border border-white/15 px-3 py-2 font-bold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+    : "rounded-lg border border-slate-300 px-3 py-2 font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
+
+  return (
+    <div
+      className={`flex flex-col gap-3 border-t px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between ${
+        isDark ? "border-slate-800" : "border-slate-200"
+      }`}
+    >
+      <div className={`flex items-center gap-2 ${isDark ? "text-slate-200" : "text-slate-600"}`}>
+        <span className="font-semibold">Rows per page</span>
+        <select
+          className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-bold text-slate-700 shadow-sm"
+          value={rowsPerPage}
+          onChange={(event) => onRowsPerPageChange(Number(event.target.value))}
+          aria-label={`Rows per page for ${itemLabel}`}
+        >
+          {rowsPerPageOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center justify-between gap-3 sm:justify-end">
+        <span className={`font-semibold ${isDark ? "text-slate-300" : "text-slate-500"}`}>
+          {firstItem}-{lastItem} of {totalItems} {itemLabel}
+        </span>
+        <div className="flex gap-2">
+          <button className={buttonClass} disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
+            Prev
+          </button>
+          <button className={buttonClass} disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
+            Next
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const now = new Date();
   const [period, setPeriod] = useState<Period>("Monthly");
@@ -282,6 +352,10 @@ export default function Home() {
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [pendingCategoryChange, setPendingCategoryChange] = useState<PendingCategoryChange | null>(null);
   const [merchantCategoryMap, setMerchantCategoryMap] = useState<Record<string, string>>({});
+  const [transactionPage, setTransactionPage] = useState(1);
+  const [transactionRowsPerPage, setTransactionRowsPerPage] = useState(10);
+  const [mappingPage, setMappingPage] = useState(1);
+  const [mappingRowsPerPage, setMappingRowsPerPage] = useState(10);
 
   async function loadTransactions() {
     if (!supabase) {
@@ -293,27 +367,34 @@ export default function Home() {
     setIsLoadingTransactions(true);
     setTransactionError(null);
 
-    const { data, error } = await supabase
-      .from("Transactions")
-      .select("id,date,merchant,category,amount")
-      .order("date", { ascending: false });
+    const [transactionsResult, mappingsResult] = await Promise.all([
+      supabase.from("Transactions").select("id,date,merchant,category,amount").order("date", { ascending: false }),
+      supabase.from("CategoryMap").select("merchant,category").order("merchant", { ascending: true }),
+    ]);
 
-    if (error) {
+    if (transactionsResult.error) {
       setTransactions([]);
-      setTransactionError(error.message);
+      setTransactionError(transactionsResult.error.message);
       setIsLoadingTransactions(false);
       return;
     }
 
-    const nextTransactions = (data ?? []).map((row) => toTransaction(row as TransactionRow));
-    setTransactions(nextTransactions);
-    setMerchantCategoryMap(
-      Object.fromEntries(
-        nextTransactions
-          .filter((transaction) => transaction.category !== "Uncategorized")
-          .map((transaction) => [transaction.merchant, transaction.category]),
-      ),
+    if (mappingsResult.error) {
+      setTransactions([]);
+      setMerchantCategoryMap({});
+      setTransactionError(mappingsResult.error.message);
+      setIsLoadingTransactions(false);
+      return;
+    }
+
+    const nextMap = Object.fromEntries(
+      ((mappingsResult.data ?? []) as CategoryMapRow[])
+        .filter((mapping) => mapping.merchant && mapping.category?.trim())
+        .map((mapping) => [mapping.merchant, mapping.category?.trim() ?? ""]),
     );
+    const nextTransactions = (transactionsResult.data ?? []).map((row) => toTransaction(row as TransactionRow, nextMap));
+    setTransactions(nextTransactions);
+    setMerchantCategoryMap(nextMap);
     setIsLoadingTransactions(false);
   }
 
@@ -337,8 +418,23 @@ export default function Home() {
   const categoryOptions = useMemo(() => {
     const categories = new Set(defaultCategories);
     transactions.forEach((transaction) => categories.add(transaction.category));
+    Object.values(merchantCategoryMap).forEach((category) => categories.add(category));
     return Array.from(categories).sort((a, b) => (a === "Uncategorized" ? -1 : b === "Uncategorized" ? 1 : a.localeCompare(b)));
-  }, [transactions]);
+  }, [merchantCategoryMap, transactions]);
+
+  const mappingEntries = useMemo(() => Object.entries(merchantCategoryMap).sort(([left], [right]) => left.localeCompare(right)), [merchantCategoryMap]);
+  const transactionTotalPages = Math.max(1, Math.ceil(transactions.length / transactionRowsPerPage));
+  const mappingTotalPages = Math.max(1, Math.ceil(mappingEntries.length / mappingRowsPerPage));
+  const activeTransactionPage = Math.min(transactionPage, transactionTotalPages);
+  const activeMappingPage = Math.min(mappingPage, mappingTotalPages);
+  const paginatedTransactions = useMemo(
+    () => transactions.slice((activeTransactionPage - 1) * transactionRowsPerPage, activeTransactionPage * transactionRowsPerPage),
+    [activeTransactionPage, transactionRowsPerPage, transactions],
+  );
+  const paginatedMappings = useMemo(
+    () => mappingEntries.slice((activeMappingPage - 1) * mappingRowsPerPage, activeMappingPage * mappingRowsPerPage),
+    [activeMappingPage, mappingEntries, mappingRowsPerPage],
+  );
 
   const periodData = useMemo(() => {
     const activeMonths = getPeriodMonths(period, selectedMonth, selectedQuarter);
@@ -415,6 +511,18 @@ export default function Home() {
         setTransactionError(error.message);
         setPendingCategoryChange(null);
         return;
+      }
+
+      if (nextCategory !== "Uncategorized") {
+        const { error: mappingError } = await supabase
+          .from("CategoryMap")
+          .upsert({ merchant, category: nextCategory }, { onConflict: "merchant" });
+
+        if (mappingError) {
+          setTransactionError(mappingError.message);
+          setPendingCategoryChange(null);
+          return;
+        }
       }
     }
 
@@ -513,7 +621,7 @@ export default function Home() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-bold">{isSupabaseConfigured ? "Supabase configured" : "Supabase keys missing"}</p>
-              <p className="mt-1 text-sm text-slate-500">Reading from Transactions (id, date, merchant, category, amount)</p>
+              <p className="mt-1 text-sm text-slate-500">Reading from Transactions and CategoryMap</p>
             </div>
             <span
               className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${
@@ -561,7 +669,7 @@ export default function Home() {
 
           <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-xl font-bold">Category split</h2>
-            <p className="mt-1 text-sm text-slate-500">Calculated only from fetched Supabase rows</p>
+            <p className="mt-1 text-sm text-slate-500">Sample category split for {periodData.label}</p>
             <div className="mt-6">
               <CategoryChart data={periodData.categories} />
             </div>
@@ -644,7 +752,7 @@ export default function Home() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {transactions.length > 0 ? (
-                    transactions.map((transaction) => (
+                    paginatedTransactions.map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-slate-50">
                         <td className="px-5 py-4 font-bold text-slate-900">{transaction.merchant}</td>
                         <td className="px-5 py-4 text-slate-600">
@@ -677,14 +785,26 @@ export default function Home() {
                 </tbody>
               </table>
             </div>
+            <PaginationControls
+              currentPage={activeTransactionPage}
+              itemLabel="transactions"
+              onPageChange={setTransactionPage}
+              onRowsPerPageChange={(nextRowsPerPage) => {
+                setTransactionRowsPerPage(nextRowsPerPage);
+                setTransactionPage(1);
+              }}
+              rowsPerPage={transactionRowsPerPage}
+              totalItems={transactions.length}
+              totalPages={transactionTotalPages}
+            />
           </section>
 
           <aside className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
             <h2 className="text-xl font-bold">Learned mappings</h2>
-            <p className="mt-1 text-sm text-slate-300">Merchant-category pairs from fetched rows</p>
+            <p className="mt-1 text-sm text-slate-300">Merchant-category pairs from CategoryMap</p>
             <div className="mt-5 space-y-2 text-sm">
-              {Object.entries(merchantCategoryMap).length > 0 ? (
-                Object.entries(merchantCategoryMap).map(([merchant, category]) => (
+              {mappingEntries.length > 0 ? (
+                paginatedMappings.map(([merchant, category]) => (
                   <div key={merchant} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2">
                     <span className="font-semibold">{merchant}</span>
                     <span className="text-teal-200">{category}</span>
@@ -693,6 +813,21 @@ export default function Home() {
               ) : (
                 <p className="text-slate-300">No mappings yet.</p>
               )}
+            </div>
+            <div className="-mx-5 -mb-5 mt-5 border-slate-800 text-slate-200">
+              <PaginationControls
+                currentPage={activeMappingPage}
+                itemLabel="mappings"
+                onPageChange={setMappingPage}
+                onRowsPerPageChange={(nextRowsPerPage) => {
+                  setMappingRowsPerPage(nextRowsPerPage);
+                  setMappingPage(1);
+                }}
+                rowsPerPage={mappingRowsPerPage}
+                totalItems={mappingEntries.length}
+                totalPages={mappingTotalPages}
+                variant="dark"
+              />
             </div>
           </aside>
         </section>

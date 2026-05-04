@@ -14,15 +14,21 @@ const { data, error, count } = await supabase
   .select("id,date,merchant,category,amount", { count: "exact" })
   .limit(1);
 
-if (error) {
+const { data: mappingData, error: mappingError, count: mappingCount } = await supabase
+  .from("CategoryMap")
+  .select("merchant,category", { count: "exact" })
+  .limit(1);
+
+if (error || mappingError) {
+  const activeError = error ?? mappingError;
   console.error(
     JSON.stringify(
       {
         ok: false,
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
+        message: activeError.message,
+        code: activeError.code,
+        details: activeError.details,
+        hint: activeError.hint,
       },
       null,
       2,
@@ -31,4 +37,14 @@ if (error) {
   process.exit(1);
 }
 
-console.log(JSON.stringify({ ok: true, count, firstRow: data?.[0] ?? null }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      ok: true,
+      transactions: { count, firstRow: data?.[0] ?? null },
+      categoryMap: { count: mappingCount, firstRow: mappingData?.[0] ?? null },
+    },
+    null,
+    2,
+  ),
+);
