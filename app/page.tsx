@@ -87,11 +87,12 @@ function useIsClient() {
 }
 
 function formatCurrency(value: number) {
+  const absoluteValue = Math.abs(value)
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-  }).format(value);
+  }).format(absoluteValue);
 }
 
 function formatChartValue(value: unknown) {
@@ -449,7 +450,11 @@ export default function Home() {
       {
         accessorKey: "amount",
         header: () => <span className="block text-right">Amount</span>,
-        cell: ({ row }) => <span className="block text-right font-bold">{formatCurrency(row.original.amount)}</span>,
+        cell: ({ row }) =>  {
+            const amount = row.original.amount
+            const color = amount < 0 ? chartColors[1] : chartColors[0]
+            return (<span className={`block text-right font-bold text-[${color}]`}>{formatCurrency(amount)}</span>)
+        }
       },
     ],
     [],
@@ -616,7 +621,7 @@ export default function Home() {
             <CardHeader className="flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <CardTitle className="text-xl font-bold">Income vs spending</CardTitle>
-                <CardDescription>Sample analytics for {periodData.label}</CardDescription>
+                <CardDescription>Analytics for {periodData.label}</CardDescription>
               </div>
               <div className="flex gap-3 text-sm font-semibold">
                 <span className="flex items-center gap-2 text-teal-800"><i className="h-2.5 w-2.5 rounded-full bg-teal-700" />Income</span>
@@ -631,7 +636,7 @@ export default function Home() {
           <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
             <CardHeader className="p-3">
               <CardTitle className="text-xl font-bold">Category split</CardTitle>
-              <CardDescription>Sample category split for {periodData.label}</CardDescription>
+              <CardDescription>Category split for {periodData.label}</CardDescription>
             </CardHeader>
             <CardContent>
               <CategoryChart data={periodData.categories} />
