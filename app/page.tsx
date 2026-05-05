@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/combobox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
+import { Tooltip as TextTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { parseTransactionsFromExcelFile, type Transaction } from "@/lib/import-excel-transactions";
 import { isSupabaseConfigured, supabase, type TransactionRow } from "@/lib/supabase";
 
@@ -59,6 +60,7 @@ type TransactionInsert = Pick<Transaction, "date" | "merchant" | "category" | "a
 };
 
 const chartColors = ["#009ca4", "#f74800", "#d97706", "#2563eb", "#7c3aed"]
+const merchantPreviewLength = 30;
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const excelFileTypes = new Set([
   "application/vnd.ms-excel",
@@ -93,6 +95,27 @@ function formatCurrency(value: number) {
 
 function formatChartValue(value: unknown) {
   return typeof value === "number" ? formatCurrency(value) : String(value ?? "");
+}
+
+function truncateText(value: string, length: number) {
+  return value.length > length ? `${value.slice(0, length)}...` : value;
+}
+
+function MerchantCell({ merchant }: { merchant: string }) {
+  const preview = truncateText(merchant, merchantPreviewLength);
+
+  return (
+    <TextTooltip>
+      <TooltipTrigger
+        className="block max-w-[30ch] truncate text-left font-bold text-slate-900"
+      >
+        <div className="font-bold">{preview}</div>
+      </TooltipTrigger>
+      <TooltipContent>
+        <span className="break-words">{merchant}</span>
+      </TooltipContent>
+    </TextTooltip>
+  );
 }
 
 function isExcelFile(file: File) {
@@ -546,7 +569,7 @@ export default function Home() {
       {
         accessorKey: "merchant",
         header: "Merchant",
-        cell: ({ row }) => <span className="font-bold text-slate-900">{row.original.merchant}</span>,
+        cell: ({ row }) => <MerchantCell merchant={row.original.merchant} />,
       },
       {
         accessorKey: "category",
