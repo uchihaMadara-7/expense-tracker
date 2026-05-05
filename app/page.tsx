@@ -33,7 +33,18 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldGroup } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tooltip as TextTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { parseTransactionsFromExcelFile, type Transaction } from "@/lib/import-excel-transactions";
 import { isSupabaseConfigured, supabase, type TransactionRow } from "@/lib/supabase";
@@ -413,6 +424,74 @@ export default function Home() {
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [categoryMappings, setCategoryMappings] = useState<MappingRow[]>([]);
+  const [selectedMapping, setSelectedMapping] = useState<MappingRow | null>(null);
+  const [editedCategory, setEditedCategory] = useState("");
+  const [isSavingMapping, setIsSavingMapping] = useState(false);
+
+  function handleMappingDialogChange(open: boolean) {
+    if (!open) {
+      setSelectedMapping(null);
+      setEditedCategory("");
+    }
+  }
+
+  function handleMappingRowClick(mapping: MappingRow) {
+    setSelectedMapping(mapping);
+    setEditedCategory(mapping.category);
+  }
+
+  async function handleCategoryMappingSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!selectedMapping) {
+      return;
+    }
+
+    if (!supabase) {
+      setTransactionError("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      return;
+    }
+
+    const nextCategory = editedCategory.trim();
+
+    if (!nextCategory) {
+      setTransactionError("Category cannot be empty.");
+      return;
+    }
+
+    setIsSavingMapping(true);
+    setTransactionError(null);
+
+    const savePromise = (async () => {
+      const { error } = await supabase
+        .from("CategoryMap")
+        .update({ category: nextCategory })
+        .eq("merchant", selectedMapping.merchant);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      await loadTransactions();
+      setSelectedMapping(null);
+      setEditedCategory("");
+      return selectedMapping.merchant;
+    })();
+
+    toast.promise(savePromise, {
+      loading: "Saving category...",
+      success: (merchant) => `Updated category for ${merchant}.`,
+      error: (error) => error instanceof Error ? error.message : "Failed to save category.",
+    });
+
+    try {
+      await savePromise;
+    } catch (error) {
+      setTransactionError(error instanceof Error ? error.message : "Failed to save category.");
+    } finally {
+      setIsSavingMapping(false);
+    }
+  }
 
   async function handleImportFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
@@ -869,20 +948,64 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
+          <Card className="overflow-hidden rounded-lg border-slate-200 bg-white p-0 shadow-sm">
             <CardContent>
-            <CardTitle className="text-xl font-bold">Learned mappings</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Merchant-category pairs from CategoryMap</p>
-            <div className="container mx-auto py-10">
-              <DataTable
-                columns={mappingColumns}
-                data={categoryMappings}
-              />
+            <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-xl font-bold">Learned category</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">Merchant-category pairs</p>
+              </div>
             </div>
+            <DataTable
+              columns={mappingColumns}
+              data={categoryMappings}
+              onRowClick={handleMappingRowClick}
+            />
             </CardContent>
           </Card>
         </section>
       </div>
+
+      <Dialog open={Boolean(selectedMapping)} onOpenChange={handleMappingDialogChange}>
+        <DialogContent className="sm:max-w-sm">
+          <form onSubmit={handleCategoryMappingSubmit}>
+            <DialogHeader>
+              <DialogTitle>Edit category</DialogTitle>
+              <DialogDescription>
+                Update the category mapped to this merchant.
+              </DialogDescription>
+            </DialogHeader>
+            <FieldGroup className="mt-4">
+              <Field>
+                <Label htmlFor="mapping-merchant">Merchant</Label>
+                <Input
+                  id="mapping-merchant"
+                  name="merchant"
+                  value={selectedMapping?.merchant ?? ""}
+                  readOnly
+                />
+              </Field>
+              <Field>
+                <Label htmlFor="mapping-category">Category</Label>
+                <Input
+                  id="mapping-category"
+                  name="category"
+                  value={editedCategory}
+                  onChange={(event) => setEditedCategory(event.target.value)}
+                />
+              </Field>
+            </FieldGroup>
+            <DialogFooter className="mt-4">
+              <DialogClose render={<Button type="button" variant="outline" />}>
+                Cancel
+              </DialogClose>
+              <Button type="submit" disabled={isSavingMapping}>
+                Save changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
     </main>
   );
