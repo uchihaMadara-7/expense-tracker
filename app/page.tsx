@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { DownloadIcon } from 'lucide-react'
+import { toast } from "sonner";
 
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -31,6 +32,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { parseTransactionsFromExcelFile, type Transaction } from "@/lib/import-excel-transactions";
 import { isSupabaseConfigured, supabase, type TransactionRow } from "@/lib/supabase";
@@ -58,6 +60,10 @@ type TransactionInsert = Pick<Transaction, "date" | "merchant" | "category" | "a
 
 const chartColors = ["#009ca4", "#f74800", "#d97706", "#2563eb", "#7c3aed"]
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const excelFileTypes = new Set([
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
 const quarterOptions = [
   { label: "Q1", months: [0, 1, 2] },
   { label: "Q2", months: [3, 4, 5] },
@@ -87,6 +93,11 @@ function formatCurrency(value: number) {
 
 function formatChartValue(value: unknown) {
   return typeof value === "number" ? formatCurrency(value) : String(value ?? "");
+}
+
+function isExcelFile(file: File) {
+  const fileName = file.name.toLowerCase();
+  return excelFileTypes.has(file.type) || fileName.endsWith(".xls") || fileName.endsWith(".xlsx");
 }
 
 function toTransaction(row: TransactionRow, categoryMap: Record<string, string> = {}): Transaction {
@@ -373,6 +384,8 @@ export default function Home() {
   const [selectedQuarter, setSelectedQuarter] = useState(Math.floor(now.getMonth() / 3));
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [fileName, setFileName] = useState("No file selected");
+  const [pendingImportTransactions, setPendingImportTransactions] = useState<Transaction[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
   const [transactionError, setTransactionError] = useState<string | null>(null);
@@ -381,8 +394,17 @@ export default function Home() {
   async function handleImportFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     setFileName(file?.name ?? "No file selected");
+    setPendingImportTransactions([]);
+    setImportError(null);
 
     if (!file) {
+      return;
+    }
+
+    if (!isExcelFile(file)) {
+      setFileName("No file selected");
+      setImportError("Please choose a valid Excel file with .xls or .xlsx extension.");
+      event.target.value = "";
       return;
     }
 
@@ -390,39 +412,66 @@ export default function Home() {
       const importedTransactions = await parseTransactionsFromExcelFile(file);
 
       if (importedTransactions.length === 0) {
-        setTransactionError("No valid transactions found in the imported file.");
+        setImportError("No valid transactions found in the imported file.");
         return;
       }
 
-      if (!supabase) {
-        setTransactionError("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
-        return;
-      }
+      setPendingImportTransactions(importedTransactions);
+    } catch (error) {
+      console.error("Failed to import transactions", error);
+      setImportError(error instanceof Error ? error.message : "Failed to import transactions.");
+    }
+  }
 
+  async function handleSubmitImport() {
+    if (pendingImportTransactions.length === 0) {
+      setImportError("Choose a valid Excel file before submitting.");
+      return;
+    }
+
+    if (!supabase) {
+      setTransactionError("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+      return;
+    }
+
+    try {
       setIsLoadingTransactions(true);
       setTransactionError(null);
+      setImportError(null);
 
-      const rowsToInsert: TransactionInsert[] = importedTransactions.map(({ amount, category, date, id, merchant }) => ({
+      const rowsToInsert: TransactionInsert[] = pendingImportTransactions.map(({ amount, category, date, id, merchant }) => ({
         amount,
         category,
         date,
         merchant,
         ...(id ? { ref_id: id } : {}),
       }));
-      const { error } = await supabase
-        .from("Transactions")
-        .upsert(rowsToInsert, { onConflict: 'merchant,date,amount,ref_id', ignoreDuplicates: true });
+      const submitPromise = (async () => {
+        const { error } = await supabase
+          .from("Transactions")
+          .upsert(rowsToInsert, { onConflict: 'merchant,date,amount,ref_id', ignoreDuplicates: true });
 
-      if (error) {
-        setTransactionError(error.message);
-        setIsLoadingTransactions(false);
-        return;
-      }
+        if (error) {
+          throw new Error(error.message);
+        }
 
-      await loadTransactions();
+        await loadTransactions();
+        setPendingImportTransactions([]);
+        setFileName("No file selected");
+
+        return rowsToInsert.length;
+      })();
+
+      toast.promise(submitPromise, {
+        loading: "Importing transactions...",
+        success: (count) => `${count} transactions imported.`,
+        error: (error) => error instanceof Error ? error.message : "Failed to import transactions.",
+      });
+
+      await submitPromise;
     } catch (error) {
       console.error("Failed to import transactions", error);
-      setTransactionError(error instanceof Error ? error.message : "Failed to import transactions.");
+      setImportError(error instanceof Error ? error.message : "Failed to import transactions.");
       setIsLoadingTransactions(false);
     }
   }
@@ -718,10 +767,24 @@ export default function Home() {
               <Input
                 className="sr-only"
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls"
                 onChange={handleImportFileChange}
               />
             </label>
+            {importError ? (
+              <Alert variant="destructive" className="mt-4">
+                <AlertTitle>Import failed</AlertTitle>
+                <AlertDescription>{importError}</AlertDescription>
+              </Alert>
+            ) : null}
+            <Button
+              type="button"
+              className="mt-4 w-full font-bold"
+              disabled={pendingImportTransactions.length === 0 || isLoadingTransactions}
+              onClick={handleSubmitImport}
+            >
+              Submit
+            </Button>
             </CardContent>
           </Card>
 
