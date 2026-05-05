@@ -107,7 +107,7 @@ function MerchantCell({ merchant }: { merchant: string }) {
   return (
     <TextTooltip>
       <TooltipTrigger
-        className="block max-w-[30ch] truncate text-left font-bold text-slate-900"
+        className="block max-w-[25ch] truncate text-left font-bold text-slate-900"
       >
         <div className="font-bold">{preview}</div>
       </TooltipTrigger>
@@ -598,7 +598,7 @@ export default function Home() {
       {
         accessorKey: "merchant",
         header: "Merchant",
-        cell: ({ row }) => <span className="font-semibold text-slate-900">{row.original.merchant}</span>,
+        cell: ({ row }) => <MerchantCell merchant={row.original.merchant} />,
       },
       {
         accessorKey: "category",
