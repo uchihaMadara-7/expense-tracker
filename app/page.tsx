@@ -144,6 +144,10 @@ function toTransaction(row: TransactionRow, categoryMap: Record<string, string> 
   };
 }
 
+function isInvestmentCategory(category: string) {
+  return category.trim().toLowerCase() === "investment";
+}
+
 function dateParts(value: string) {
   const date = new Date(value);
 
@@ -204,10 +208,13 @@ function buildAnnualSeries(transactions: Transaction[]) {
       }
 
       series.income[parts.year] ??= Array(12).fill(0);
+      series.investment[parts.year] ??= Array(12).fill(0);
       series.spend[parts.year] ??= Array(12).fill(0);
 
       if (transaction.amount > 0) {
         series.income[parts.year][parts.month] += transaction.amount;
+      } else if (isInvestmentCategory(transaction.category)) {
+        series.investment[parts.year][parts.month] += Math.abs(transaction.amount);
       } else {
         series.spend[parts.year][parts.month] += Math.abs(transaction.amount);
       }
@@ -216,17 +223,26 @@ function buildAnnualSeries(transactions: Transaction[]) {
     },
     {
       income: {} as Record<number, number[]>,
+      investment: {} as Record<number, number[]>,
       spend: {} as Record<number, number[]>,
     },
   );
 }
 
-function getTransactionTotals(year: number, months: number[], annualIncome: Record<number, number[]>, annualSpend: Record<number, number[]>) {
+function getTransactionTotals(
+  year: number,
+  months: number[],
+  annualIncome: Record<number, number[]>,
+  annualInvestment: Record<number, number[]>,
+  annualSpend: Record<number, number[]>,
+) {
   const incomeForYear = annualIncome[year];
+  const investmentForYear = annualInvestment[year];
   const spendForYear = annualSpend[year];
 
   return {
     income: months.reduce((sum, month) => sum + (incomeForYear?.[month] ?? 0), 0),
+    investment: months.reduce((sum, month) => sum + (investmentForYear?.[month] ?? 0), 0),
     spent: months.reduce((sum, month) => sum + (spendForYear?.[month] ?? 0), 0),
   };
 }
@@ -236,7 +252,13 @@ function getCategoryTotals(transactions: Transaction[], year: number, months: nu
   const totals = transactions.reduce<Record<string, number>>((categoryTotals, transaction) => {
     const parts = dateParts(transaction.date);
 
-    if (!parts || parts.year !== year || !activeMonths.has(parts.month) || transaction.amount >= 0) {
+    if (
+      !parts ||
+      parts.year !== year ||
+      !activeMonths.has(parts.month) ||
+      transaction.amount >= 0 ||
+      isInvestmentCategory(transaction.category)
+    ) {
       return categoryTotals;
     }
 
@@ -641,7 +663,11 @@ export default function Home() {
 
     return Array.from(years).sort((a, b) => b - a);
   }, [selectedYear, transactions]);
-  const { income: annualIncome, spend: annualSpend } = useMemo(() => buildAnnualSeries(transactions), [transactions]);
+  const {
+    income: annualIncome,
+    investment: annualInvestment,
+    spend: annualSpend,
+  } = useMemo(() => buildAnnualSeries(transactions), [transactions]);
 
   const transactionColumns = useMemo<ColumnDef<Transaction>[]>(
     () => [
@@ -691,10 +717,10 @@ export default function Home() {
   const periodData = useMemo(() => {
     const activeMonths = getPeriodMonths(period, selectedMonth, selectedQuarter);
     const previousPeriod = getPreviousPeriod(period, selectedMonth, selectedQuarter, selectedYear);
-    const { income, spent } = getTransactionTotals(selectedYear, activeMonths, annualIncome, annualSpend);
-    const previousTotals = getTransactionTotals(previousPeriod.year, previousPeriod.months, annualIncome, annualSpend);
-    const saved = income - spent;
-    const previousSaved = previousTotals.income - previousTotals.spent;
+    const { income, investment, spent } = getTransactionTotals(selectedYear, activeMonths, annualIncome, annualInvestment, annualSpend);
+    const previousTotals = getTransactionTotals(previousPeriod.year, previousPeriod.months, annualIncome, annualInvestment, annualSpend);
+    const saved = income - spent - investment;
+    const previousSaved = previousTotals.income - previousTotals.spent - previousTotals.investment;
     const label =
       period === "Monthly"
         ? `${monthLabels[selectedMonth]} ${selectedYear}`
@@ -726,15 +752,17 @@ export default function Home() {
       categories,
       chartData,
       income,
+      investment,
       label,
       previousIncome: previousTotals.income,
+      previousInvestment: previousTotals.investment,
       previousSaved,
       previousSpent: previousTotals.spent,
       saved,
       spent,
       savingsRate: income > 0 ? Math.round((saved / income) * 100) : 0,
     };
-  }, [annualIncome, annualSpend, period, selectedMonth, selectedQuarter, selectedYear, transactions]);
+  }, [annualIncome, annualInvestment, annualSpend, period, selectedMonth, selectedQuarter, selectedYear, transactions]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -810,7 +838,7 @@ export default function Home() {
             ["Income", periodData.income, formatDelta(periodData.income, periodData.previousIncome)],
             ["Spending", periodData.spent, formatDelta(periodData.spent, periodData.previousSpent)],
             ["Saved", periodData.saved, `${periodData.savingsRate}% rate`],
-            ["Needs review", Math.round(periodData.spent * 0.012), "2 imports"],
+            ["Investment", periodData.investment, formatDelta(periodData.investment, periodData.previousInvestment)],
           ].map(([label, value, delta]) => (
             <Card key={label} className="rounded-lg border-slate-200 bg-white p-1 shadow-sm">
               <CardContent>
