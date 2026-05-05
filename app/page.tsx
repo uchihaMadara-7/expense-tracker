@@ -32,17 +32,10 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
+import { parseTransactionsFromExcelFile, type Transaction } from "@/lib/import-excel-transactions";
 import { isSupabaseConfigured, supabase, type TransactionRow } from "@/lib/supabase";
 
 type Period = "Monthly" | "Quarterly" | "Yearly";
-
-type Transaction = {
-  id: string;
-  date: string;
-  merchant: string;
-  category: string;
-  amount: number;
-};
 
 type CategoryMapRow = {
   merchant: string;
@@ -381,6 +374,22 @@ export default function Home() {
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [categoryMappings, setCategoryMappings] = useState<MappingRow[]>([]);
 
+  async function handleImportFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setFileName(file?.name ?? "No file selected");
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const importedTransactions = await parseTransactionsFromExcelFile(file);
+      console.log("Imported transactions", importedTransactions);
+    } catch (error) {
+      console.error("Failed to import transactions", error);
+    }
+  }
+
   async function loadTransactions() {
     if (!supabase) {
       setTransactionError("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
@@ -469,7 +478,7 @@ export default function Home() {
         cell: ({ row }) =>  {
             const amount = row.original.amount
             const color = amount < 0 ? chartColors[1] : chartColors[0]
-            return (<span className={`block text-right font-bold text-[${color}]`}>{formatCurrency(amount)}</span>)
+            return (<span className="block text-right font-bold" style={{color}}>{formatCurrency(amount)}</span>)
         }
       },
     ],
@@ -673,7 +682,7 @@ export default function Home() {
                 className="sr-only"
                 type="file"
                 accept=".xlsx,.xls,.csv"
-                onChange={(event) => setFileName(event.target.files?.[0]?.name ?? "No file selected")}
+                onChange={handleImportFileChange}
               />
             </label>
             </CardContent>
