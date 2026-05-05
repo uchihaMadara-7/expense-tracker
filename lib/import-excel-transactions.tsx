@@ -13,6 +13,7 @@ type SpreadsheetCell = string | number | boolean | Date | null | undefined;
 const importColumns = {
   date: 0,
   merchant: 1,
+  reference: 2,
   withdraw: 4,
   deposit: 5,
 };
@@ -88,6 +89,15 @@ function parseImportedAmount(value: SpreadsheetCell) {
   return Number.isFinite(amount) ? amount : null;
 }
 
+function parseImportedReference(value: SpreadsheetCell) {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const reference = String(value).trim();
+  return reference ? reference : undefined;
+}
+
 export function parseImportedTransactions(workbook: XLSX.WorkBook): Transaction[] {
   const [sheetName] = workbook.SheetNames;
 
@@ -105,6 +115,7 @@ export function parseImportedTransactions(workbook: XLSX.WorkBook): Transaction[
   return rows.reduce<Transaction[]>((importedTransactions, row) => {
     const date = parseImportedDate(row[importColumns.date]);
     const merchant = String(row[importColumns.merchant] ?? "").trim();
+    const id = parseImportedReference(row[importColumns.reference]);
     const withdraw = parseImportedAmount(row[importColumns.withdraw]) ?? 0;
     const deposit = parseImportedAmount(row[importColumns.deposit]) ?? 0;
     const amount = deposit - withdraw;
@@ -114,6 +125,7 @@ export function parseImportedTransactions(workbook: XLSX.WorkBook): Transaction[
     }
 
     importedTransactions.push({
+      id,
       date,
       merchant,
       category: "Others",

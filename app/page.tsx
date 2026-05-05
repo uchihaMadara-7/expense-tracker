@@ -52,6 +52,10 @@ type MappingRow = {
   category: string;
 };
 
+type TransactionInsert = Pick<Transaction, "date" | "merchant" | "category" | "amount"> & {
+  ref_id?: string;
+};
+
 const chartColors = ["#009ca4", "#f74800", "#d97706", "#2563eb", "#7c3aed"]
 const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const quarterOptions = [
@@ -384,9 +388,42 @@ export default function Home() {
 
     try {
       const importedTransactions = await parseTransactionsFromExcelFile(file);
-      console.log("Imported transactions", importedTransactions);
+
+      if (importedTransactions.length === 0) {
+        setTransactionError("No valid transactions found in the imported file.");
+        return;
+      }
+
+      if (!supabase) {
+        setTransactionError("Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.");
+        return;
+      }
+
+      setIsLoadingTransactions(true);
+      setTransactionError(null);
+
+      const rowsToInsert: TransactionInsert[] = importedTransactions.map(({ amount, category, date, id, merchant }) => ({
+        amount,
+        category,
+        date,
+        merchant,
+        ...(id ? { ref_id: id } : {}),
+      }));
+      const { error } = await supabase
+        .from("Transactions")
+        .upsert(rowsToInsert, { onConflict: 'merchant,date,amount,ref_id', ignoreDuplicates: true });
+
+      if (error) {
+        setTransactionError(error.message);
+        setIsLoadingTransactions(false);
+        return;
+      }
+
+      await loadTransactions();
     } catch (error) {
       console.error("Failed to import transactions", error);
+      setTransactionError(error instanceof Error ? error.message : "Failed to import transactions.");
+      setIsLoadingTransactions(false);
     }
   }
 
