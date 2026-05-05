@@ -113,3 +113,28 @@ ON "CategoryMap"
 FOR EACH ROW
 EXECUTE FUNCTION set_category_map_category_from_rules();
 ```
+
+# Trigger after Rules insert
+## Trigger action function
+```sql
+CREATE OR REPLACE FUNCTION apply_new_rule_to_category_map()
+RETURNS trigger AS $$
+BEGIN
+  UPDATE "CategoryMap"
+  SET category = NEW.category
+  WHERE trim(regexp_replace(merchant, '\s+', ' ', 'g'))
+    ILIKE '%' || trim(regexp_replace(NEW.rule, '\s+', ' ', 'g')) || '%';
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+## Trigger creation
+```sql
+CREATE TRIGGER trg_apply_new_rule_to_category_map
+AFTER INSERT
+ON "Rules"
+FOR EACH ROW
+EXECUTE FUNCTION apply_new_rule_to_category_map();
+```
