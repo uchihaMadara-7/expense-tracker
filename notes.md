@@ -5,7 +5,7 @@ ADD CONSTRAINT unique_transaction
 UNIQUE (merchant, date, amount, ref_id);
 ```
 
-# Trigger before Transactions insert:
+# Trigger before Transactions insert
 ## Trigger action function
 ```sql
 CREATE OR REPLACE FUNCTION set_transaction_category()
@@ -34,7 +34,7 @@ FOR EACH ROW
 EXECUTE FUNCTION set_transaction_category();
 ```
 
-# Trigger after Transactions insert:
+# Trigger after Transactions insert
 ## Trigger action function
 ```sql
 CREATE OR REPLACE FUNCTION add_missing_category_map()
@@ -56,4 +56,28 @@ AFTER INSERT
 ON "Transactions"
 FOR EACH ROW
 EXECUTE FUNCTION add_missing_category_map();
+```
+
+# Trigger after Category update
+## Trigger action function
+```sql
+CREATE OR REPLACE FUNCTION sync_transaction_category_from_category_map()
+RETURNS trigger AS $$
+BEGIN
+  UPDATE "Transactions"
+  SET category = NEW.category
+  WHERE merchant = NEW.merchant;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+## Trigger creation
+```sql
+CREATE TRIGGER trg_sync_transaction_category
+AFTER UPDATE OF category
+ON "CategoryMap"
+FOR EACH ROW
+EXECUTE FUNCTION sync_transaction_category_from_category_map();
 ```
